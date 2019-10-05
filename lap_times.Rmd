@@ -8,8 +8,6 @@ output:
 runtime: shiny
 ---
 
-This is a test. 
-
 ```{r include = F}
 library(tidyverse)
 library(lubridate)
@@ -20,8 +18,11 @@ source("data/data.R")
 ```{r include = F}
 df <- dat[["lap_times"]] %>% 
   inner_join(dat[["races"]] %>%
-               select(year, round, name, raceId), 
-             by = c("raceId"))  %>% 
+               select(year, round, circuitName, raceId, circuitId), 
+             by = c("raceId"))  %>%
+  inner_join(dat[["circuits"]] %>% 
+               select(circuitId, country),
+             by = c("circuitId")) %>% 
   inner_join(dat[["driver"]] %>% 
                select(driverId, firstName, lastName),
              by = c("driverId")) %>% 
@@ -29,26 +30,52 @@ df <- dat[["lap_times"]] %>%
                select(raceId, driverId, constructorId),
              by = c("raceId", "driverId")) %>% 
   inner_join(dat[["constructors"]] %>% 
-               select(constructorId, name, nationality),
+               select(constructorId, teamName, nationality),
              by = c("constructorId")) %>% 
-  select(-raceId, -driverId, -time)
+  mutate(roundName = paste0("Round ", round, " - ", country)) %>% 
+  select(year, circuitName, country, round, roundName, lastName, teamName, lap, position, milliseconds)
+```
+
+```{r}
+head(df)
 ```
 
 ```{r}
 shinyApp(
   ui = fluidPage(
-    selectInput("year", "Year:",
-                choices = min(dat[["seasons"]]$year):max(dat[["seasons"]]$year)),
-    selectInput("round", "Round:",
-                choices = 1:20) ,
+    selectInput("season", "Season:",
+                choices = 1996:2019),
+    selectizeInput("country","Race:", choices = NULL),
+    selectizeInput("teamName","Team:",choices = NULL),
+    selectizeInput("lastName","Driver:",choices = NULL),
     plotOutput("phonePlot")
   ),
-  server = function(input, output) {
+  server = function(input, output, session) {
+    observeEvent(input$season,{
+      updateSelectInput(session,"country",
+                        choices= df %>% filter(year == input$season) %>% 
+                          .$country %>% unique)
+    }) 
+    observeEvent(input$country,{
+      updateSelectInput(session,"teamName",
+                        choices= df %>% 
+                          filter(year == input$season & country == input$country) %>% 
+                          .$teamName %>% unique)
+    })
+    observeEvent(input$teamName,{
+      updateSelectInput(session, "lastName",
+                        choices= df %>% 
+                          filter(year == input$season & country == input$country & 
+                                   teamName == input$teamName) %>%
+                          .$lastName %>% unique)
+    }) 
     output$phonePlot = renderPlot({df %>% 
-        filter(year == input$year &
-                 round == input$round) %>% 
+        filter(year == input$season &
+                 country == input$country &
+                 teamName == input$teamName &
+                 lastName == input$lastName) %>% 
         ggplot() +
-        geom_density(aes(x = milliseconds, y = ..scaled.., fill = name.y), alpha = 1/2) +
+        geom_density(aes(x = milliseconds, y = ..scaled.., fill = lastName), alpha = 1/2) +
         labs(title = "Distribution of Lap Times at 2011 Australian Grand Prix",
              x = "Lap Time (Milliseconds)",
              y = "Percent of Laps",
@@ -59,25 +86,4 @@ shinyApp(
   
   options = list(height = 500)
 )
-``` 
-
-```{r, echo=FALSE}
-shinyApp(
-  
-  ui = fluidPage(
-    selectInput("region", "Region:",
-                choices = colnames(WorldPhones)),
-    plotOutput("phonePlot")
-  ),
-  
-  server = function(input, output) {
-    output$phonePlot = renderPlot({
-      barplot(WorldPhones[,input$region]*1000,
-              ylab = "Number of Telephones", xlab = "Year")
-    })
-  },
-  
-  options = list(height = 500)
-)
 ```
-
